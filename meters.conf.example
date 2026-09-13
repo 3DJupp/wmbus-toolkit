@@ -1,0 +1,22 @@
+# wmbus-toolkit configuration
+#
+# Copy to meters.conf and fill in your own data. meters.conf is ignored by
+# git, so real meter data never ends up in the repository.
+#
+# Format: one line per meter, fields comma-separated, key=value.
+# Blank lines and # are ignored.
+#
+# Required:  id     - meter id as shown by wmbusmeters (8 digits)
+# Optional:  name   - free name for the output
+#            serial - printed serial number from the label
+#            model  - model/type number from the label
+#            key    - if already known, 32 hex chars
+#
+# serial, model and key help the candidate generator. If absent, only
+# id-based and generic candidates are built.
+
+# Examples with mock data (commented out - replace with your own lines):
+
+# id=12345678, name=MeterA, serial=1234567890
+# id=23456789, name=MeterB, serial=2345678901, model=ABC1234
+# id=34567890, name=MeterC, model=XYZ5678, key=0123456789ABCDEF0123456789ABCDEF

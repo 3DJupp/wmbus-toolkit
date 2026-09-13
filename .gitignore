@@ -1,0 +1,7 @@
+# real meter data and collected traffic stay local
+meters.conf
+keys/
+*.csv
+
+__pycache__/
+*.pyc
