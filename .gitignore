@@ -1,6 +1,7 @@
 # real meter data and collected traffic stay local
 meters.conf
 keys/
+candidates.txt
 *.csv
 
 __pycache__/

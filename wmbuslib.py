@@ -12,6 +12,7 @@ of 16. Other vendors may differ; the standard Mode-5 path handles those.
 """
 
 import csv
+import datetime
 import os
 
 try:
@@ -245,3 +246,84 @@ def read_csv_frames(csv_path, only_id=None, only_encrypted=True):
                 continue
             per.setdefault(r["id"], []).append(r)
     return per
+
+
+# ---------------------------------------------------------------- Plain dates
+
+def plain_app_bytes(frame):
+    """Application-layer record bytes of a *plain* CI-72/CI-7A telegram.
+
+    Same offsets as the Mode-5 ciphertext, but here the bytes are already the
+    cleartext DIF/VIF records (mode 0). Returns b"" when the layout is unknown.
+    """
+    b = bytes.fromhex(clean_hex(frame))
+    if len(b) < 12:
+        return b""
+    ci = b[10]
+    if ci == 0x72 and len(b) > 23:
+        return b[23:]
+    if ci == 0x7A and len(b) > 15:
+        return b[15:]
+    return b""
+
+
+def _decode_type_g(d):
+    """EN 13757-3 type G date (2 bytes, little-endian) -> datetime.date."""
+    if len(d) < 2:
+        return None
+    b0, b1 = d[0], d[1]
+    day = b0 & 0x1F
+    month = b1 & 0x0F
+    year = 2000 + (((b0 & 0xE0) >> 5) | ((b1 & 0xF0) >> 1))
+    if not (1 <= day <= 31 and 1 <= month <= 12 and 2000 <= year <= 2099):
+        return None
+    try:
+        return datetime.date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _decode_type_f(d):
+    """EN 13757-3 type F date+time (4 bytes, little-endian) -> datetime."""
+    if len(d) < 4:
+        return None
+    b0, b1, b2, b3 = d[0], d[1], d[2], d[3]
+    if b1 & 0x80:                       # "invalid" flag set
+        return None
+    minute = b0 & 0x3F
+    hour = b1 & 0x1F
+    day = b2 & 0x1F
+    month = b3 & 0x0F
+    year = 2000 + (((b2 & 0xE0) >> 5) | ((b3 & 0xF0) >> 1))
+    if not (0 <= minute < 60 and 0 <= hour < 24 and
+            1 <= day <= 31 and 1 <= month <= 12 and 2000 <= year <= 2099):
+        return None
+    try:
+        return datetime.datetime(year, month, day, hour, minute)
+    except ValueError:
+        return None
+
+
+def extract_dates(frame):
+    """Dates/datetimes carried in a plain telegram's data records.
+
+    Walks the cleartext DIF/VIF records and decodes every type G date
+    (VIF 0x6C) and type F date+time (VIF 0x6D). The plain Qundis telegram
+    (CI 72, mode 0) carries the commissioning / billing date this way, which
+    keygen can turn into date-derived key candidates.
+    """
+    out = []
+    app = plain_app_bytes(frame)
+    if not app:
+        return out
+    for dif, vifs, data in iter_records(app):
+        base = (vifs[0] & 0x7F) if vifs else 0
+        if base == 0x6C:
+            dt = _decode_type_g(data)
+        elif base == 0x6D:
+            dt = _decode_type_f(data)
+        else:
+            dt = None
+        if dt is not None:
+            out.append(dt)
+    return out
