@@ -6,17 +6,21 @@
 # Format: one line per meter, fields comma-separated, key=value.
 # Blank lines and # are ignored.
 #
-# Required:  id     - meter id as shown by wmbusmeters (8 digits)
-# Optional:  name   - free name for the output
-#            serial - printed serial number from the label
-#            model  - model/type number from the label
-#            key    - if already known, 32 hex chars
+# Required:  id        - meter id as shown by wmbusmeters (8 digits)
+# Optional:  name      - free name for the output
+#            serial    - printed serial number from the label
+#            model     - model/type number from the label
+#            installed - install / commissioning date (YYYY-MM-DD, optional
+#                        time as YYYY-MM-DD HH:MM, or DD.MM.YYYY)
+#            key       - if already known, 32 hex chars
 #
-# serial, model and key help the candidate generator. If absent, only
-# id-based and generic candidates are built.
+# serial, model and installed feed the candidate generator with more derived
+# keys. If absent, only id-based and generic candidates are built. keygen can
+# also read the install date straight from plain telegrams with
+# --from-csv telegrams.csv, so the installed field is optional.
 
 # Examples with mock data (commented out - replace with your own lines):
 
 # id=12345678, name=MeterA, serial=1234567890
-# id=23456789, name=MeterB, serial=2345678901, model=ABC1234
+# id=23456789, name=MeterB, serial=2345678901, model=ABC1234, installed=2021-03-15
 # id=34567890, name=MeterC, model=XYZ5678, key=0123456789ABCDEF0123456789ABCDEF
