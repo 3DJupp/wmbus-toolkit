@@ -318,9 +318,12 @@ def extract_dates(frame):
         return out
     for dif, vifs, data in iter_records(app):
         base = (vifs[0] & 0x7F) if vifs else 0
-        if base == 0x6C:
+        # gate on the field length: type G is 2 bytes, type F 4 bytes. Other
+        # date/time codings (e.g. the 6-byte type I current clock) are left
+        # alone rather than mis-decoded from the wrong bytes.
+        if base == 0x6C and len(data) == 2:
             dt = _decode_type_g(data)
-        elif base == 0x6D:
+        elif base == 0x6D and len(data) == 4:
             dt = _decode_type_f(data)
         else:
             dt = None

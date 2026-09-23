@@ -357,23 +357,41 @@ def dates_for_meter(m, global_install, csv_dates):
 
 
 def collect_csv_dates(csv_path):
-    """{meter_id: [dates]} decoded from plain telegrams in the collect CSV."""
+    """{meter_id: [dates]} decoded from plain telegrams in the collect CSV.
+
+    A plain telegram usually carries two dates: a fixed reference/commissioning
+    date that repeats in every telegram, and the current clock that changes each
+    time. The fixed one is the useful key-derivation seed, so when a meter has
+    several plain telegrams the dates are ordered by how often they recur - the
+    stable date first, volatile clock readings last.
+    """
     per = {}
     if not csv_path or not os.path.exists(csv_path):
         return per
     rows = wl.read_csv_frames(csv_path, only_encrypted=False)
     for mid, telegrams in rows.items():
-        seen, dates = set(), []
+        counts, first_seen = {}, {}
+        plain_n = 0
         for r in telegrams:
             if wl.is_encrypted(r):
                 continue
+            plain_n += 1
+            seen_here = set()               # count each date once per telegram
             for d in wl.extract_dates(r.get("telegram", "")):
-                key = d.isoformat()
-                if key not in seen:
-                    seen.add(key)
-                    dates.append(d)
-        if dates:
-            per[mid] = dates
+                if d in seen_here:
+                    continue
+                seen_here.add(d)
+                counts[d] = counts.get(d, 0) + 1
+                first_seen.setdefault(d, len(first_seen))
+        if not counts:
+            continue
+        # stable dates (recurring across telegrams) first; ties keep discovery
+        # order. With a single telegram every date recurs once, so all are kept.
+        ordered = sorted(counts, key=lambda d: (-counts[d], first_seen[d]))
+        if plain_n > 1:
+            stable = [d for d in ordered if counts[d] > 1]
+            ordered = stable or ordered
+        per[mid] = ordered
     return per
 
 

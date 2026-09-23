@@ -178,12 +178,36 @@ then 5 prefix bytes (`00 82 <2B counter> <access>`), then the AES-CBC ciphertext
 as a multiple of 16. The Mode-5 IV is M-field + id + version + type + 8x the
 access byte.
 
+### What the plain telegrams reveal
+
+The plain telegrams are worth reading even before any key is known:
+
+* Some meters transmit **entirely in the clear**. Observed Itron (`ITW`) water
+  meters send CI 7A mode 0 with the current and last-period volume plus the
+  billing date fully readable - no key needed at all. `wmbus-keycheck
+  --decode-all` already dumps these once collected.
+* The Qundis plain frame is the **companion to the encrypted CI 78 wrapper** and
+  leaks a fixed reference/commissioning date+time per meter (record `04 6D` with
+  the manufacturer VIFE), constant across every telegram, alongside the current
+  clock that changes each time. That fixed date is the strongest seed for the
+  date-derived candidates, so `--from-csv` decodes it and keygen orders the
+  stable date ahead of the volatile clock.
+* The `0D FF 5F` block in the plain frame mirrors the record layout that sits
+  inside the encrypted wrapper, which helps sanity-check a successful decrypt.
+
+`tests/test_plain.py` locks this decoding down against anonymized real
+telegrams. Run it (and the keycheck self-test) with:
+
+    python3 tests/test_plain.py
+    wmbus-keycheck --selftest --keyfile candidates.txt
+
 ## Files
 
     wmbuslib.py          shared building blocks (config, frame parsing, crypto)
     wmbus-collect.py     collect telegrams
     wmbus-keygen.py      build candidates
     wmbus-keycheck.py    test keys
+    tests/test_plain.py  plain-telegram decoding tests
     meters.conf.example  template with mock data
     install.sh           installer
 
