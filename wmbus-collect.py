@@ -91,7 +91,8 @@ class Store:
 
 def fmt(rec, stamp):
     mark = "*" if rec["mine"] == "1" else " "
-    return (f"{mark} {stamp[11:]}  {rec['id']:>9}  {rec['name'] or '-':<14} "
+    label = rec["name"] or wl.mfct_name(rec["mfct"])
+    return (f"{mark} {stamp[11:]}  {rec['id']:>9}  {label:<14.14} "
             f"{rec['mfct']:<4} v{rec['version']}  {rec['enc_mode']:<5} "
             f"{rec['len_bytes']:>3}B {rec['rssi']:>7}")
 
@@ -153,7 +154,8 @@ def do_stats(path):
         f = rs[0]
         dist = " ".join(f"{k}:{v}" for k, v in sorted(Counter(r["enc_mode"] for r in rs).items()))
         mark = "*" if f["mine"] == "1" else " "
-        print(f"{mark} {mid:>9}  {f['name'] or '-':<14} {f['mfct']:<4} v{f['version']}  "
+        label = f["name"] or wl.mfct_name(f["mfct"])
+        print(f"{mark} {mid:>9}  {label:<14.14} {f['mfct']:<4} v{f['version']}  "
               f"{len(rs):>6}  {dist}")
     print("\n* = own meter")
 

@@ -95,9 +95,14 @@ PUBLISHED_AES = {
 #   oms_annexN_profA: OMS Spec Vol.2 Annex N, Security Profile A message example.
 #   wmbm_readme_demo: the example key used throughout the wmbusmeters README and
 #                     its simulation files.
+#   oms_testkey_seq:  the ascending example key used in several OMS test frames.
+#   All are public test vectors, never real meter data.
 PUBLISHED_WMBUS = {
     "oms_annexN_profA": "0102030405060708090a0b0c0d0e0f11",
     "wmbm_readme_demo": "00112233445566778899aabbccddeeff",
+    "oms_testkey_seq": "000102030405060708090a0b0c0d0e0f",
+    "oms_testkey_seq_rev": "0f0e0d0c0b0a09080706050403020100",
+    "wmbm_alt_demo": "0123456789abcdef0123456789abcdef",
 }
 
 # 32-bit "hex culture" constants (repeated to 16 bytes).
@@ -113,13 +118,35 @@ HEX_OCTETS = [
     "fedcba9876543210", "0f0f0f0f0f0f0f0f", "aaaaaaaa55555555",
 ]
 
-# Manufacturer / vendor names to try as ASCII keys, several spellings each.
-MFCT_WORDS = [
-    "Qundis", "QUNDIS", "qundis", "Allmess", "ALLMESS", "Kamstrup", "KAMSTRUP",
-    "kamstrup", "Diehl", "DIEHL", "Techem", "TECHEM", "techem", "Engelmann",
-    "ENGELMANN", "Sensus", "SENSUS", "Itron", "ITRON", "Landis", "LandisGyr",
-    "Zenner", "ZENNER", "Sontex", "SONTEX",
+# Manufacturer / vendor names and their FLAG codes, tried as ASCII keys. Broad
+# on purpose: this is a multi-vendor tool, not a Qundis-only one. Each base word
+# is expanded to several spellings (title / upper / lower) automatically.
+MFCT_BASE = [
+    "Qundis", "Allmess", "Kamstrup", "Diehl", "Techem", "Engelmann", "Sensus",
+    "Itron", "Landis", "LandisGyr", "Zenner", "Sontex", "Elster", "Apator",
+    "Maddalena", "Axioma", "Aquametro", "Integra", "Hydrometer", "Gavazzi",
+    "Sappel", "Lorenz", "Relay", "Innotas", "BMeters", "Weptech", "Metrona",
+    "ista", "Viterra", "Minol", "Wehrle", "Padmess", "Micronova",
 ]
+# FLAG 3-letter manufacturer codes, tried verbatim and repeated to key length.
+MFCT_FLAG_CODES = [
+    "QDS", "LUG", "KAM", "TCH", "DME", "HYD", "SEN", "EFE", "SON", "ELS",
+    "ITW", "GWF", "NZR", "REL", "AMT", "BMT", "MAD", "AXI", "GAV", "ZEN",
+    "APT", "SAP", "LOR", "IST", "EMH", "DZG",
+]
+
+
+def _spellings(words):
+    """Expand each base word to title / upper / lower spellings, de-duplicated."""
+    out = []
+    for w in words:
+        for form in (w, w.upper(), w.lower()):
+            if form not in out:
+                out.append(form)
+    return out
+
+
+MFCT_WORDS = _spellings(MFCT_BASE)
 
 # Sample of the most common passwords (rockyou top list), padded to 16 bytes.
 ROCKYOU_TOP = [
@@ -190,10 +217,13 @@ def generic_candidates():
         n += 1
     out.append(("hexculture", "prime_bytes", bytes(primes)))
 
-    # ASCII: manufacturer names, common passwords, installer shorthands
+    # ASCII: manufacturer names, FLAG codes, common passwords, installer words
     for w in MFCT_WORDS:
         out.append(("ascii", f"mfct_{w[:12]}_pad0", fit16(w.encode())))
         out.append(("ascii", f"mfct_{w[:12]}_x4", rep16(w.encode())))
+    for c in MFCT_FLAG_CODES:
+        out.append(("ascii", f"flag_{c}_x4", rep16(c.encode())))
+        out.append(("ascii", f"flag_{c}_pad0", fit16(c.encode())))
     for w in ROCKYOU_TOP:
         out.append(("ascii", f"pw_{w[:12]}_pad0", fit16(w.encode())))
         out.append(("ascii", f"pw_{w[:12]}_padsp", fit16(w.encode(), b" ")))
@@ -297,6 +327,33 @@ def meter_candidates(m, dates):
         if len(digits) >= 4:
             sources += [("model_ascii", digits.encode(), True), ("model_bcd", bcd, True)]
 
+    # Manufacturer-aware candidates: vendor name / FLAG code, alone and combined
+    # with the id. This is what makes the derivation multi-vendor rather than
+    # tuned to a single brand. mfct / mfct_name come from meters.conf or are
+    # filled in from the meter's own telegrams (see collect_csv_meta).
+    vendor_words = []
+    for w in (m.get("mfct"), m.get("mfct_name")):
+        if not w:
+            continue
+        for form in (w, w.upper(), w.lower()):
+            if form and form not in vendor_words:
+                vendor_words.append(form)
+    for w in vendor_words[:6]:
+        tag = "".join(c for c in w if c.isalnum())[:8] or "v"
+        sources.append((f"mfct_{tag}", w.encode(), True))
+        if id_be:
+            pair.append((f"mfct_{tag}", w.encode()))
+
+    # version byte, if known, as a short combinable source
+    ver = m.get("version")
+    if ver:
+        try:
+            vb = bytes.fromhex(ver) if len(ver) == 2 else ver.encode()
+            if vb:
+                pair.append(("ver", vb))
+        except ValueError:
+            pass
+
     for k, d in enumerate(dates[:3]):
         tag = "" if k == 0 else str(k + 1)
         dv = date_sources(d, tag)
@@ -354,6 +411,33 @@ def dates_for_meter(m, global_install, csv_dates):
     for d in csv_dates.get(m.get("id"), []):
         add(d)
     return out
+
+
+def collect_csv_meta(csv_path):
+    """{meter_id: {mfct, mfct_name, version, dev_type}} from the collect CSV.
+
+    Lets keygen build manufacturer-aware candidates for a meter even when
+    meters.conf carries only its id, and lets --all-meters discover every meter
+    seen on the air.
+    """
+    meta = {}
+    if not csv_path or not os.path.exists(csv_path):
+        return meta
+    import csv as _csv
+    with open(csv_path, newline="") as fh:
+        for r in _csv.DictReader(fh):
+            mid = r.get("id")
+            if not mid or mid in meta:
+                continue
+            code = r.get("mfct", "")
+            meta[mid] = {
+                "mfct": code,
+                "mfct_name": wl.mfct_name(code) if code else "",
+                "version": r.get("version", ""),
+                "dev_type": r.get("dev_type", ""),
+                "encrypted": wl.is_encrypted(r),
+            }
+    return meta
 
 
 def collect_csv_dates(csv_path):
@@ -441,6 +525,8 @@ def category_of(label):
         return "model"
     if label.startswith(("id_", "0_id")):
         return "id"
+    if label.startswith("mfct"):
+        return "mfct"
     return "other"
 
 
@@ -532,6 +618,9 @@ def main():
     ap.add_argument("--model", help="single meter: model number")
     ap.add_argument("--name", help="single meter: name")
     ap.add_argument("--installed", help="single meter: install date")
+    ap.add_argument("--all-meters", action="store_true",
+                    help="with --from-csv: build candidates for every meter seen "
+                         "in the CSV, not only those in meters.conf")
     ap.add_argument("--legacy-runner", metavar="DIR",
                     help="also write the old per-file layout plus run.sh into DIR")
     args = ap.parse_args()
@@ -541,7 +630,26 @@ def main():
         meters.append({"id": args.id, "serial": args.serial, "model": args.model,
                        "name": args.name or args.id, "installed": args.installed})
 
+    csv_meta = collect_csv_meta(args.from_csv) if args.from_csv else {}
     csv_dates = collect_csv_dates(args.from_csv) if args.from_csv else {}
+
+    # --all-meters: build per-meter candidates for every meter seen in the CSV,
+    # not only the ones listed in meters.conf. Encrypted meters first.
+    if args.all_meters:
+        known_ids = {m["id"] for m in meters}
+        for mid, info in csv_meta.items():
+            if mid not in known_ids:
+                meters.append({"id": mid, "name": info.get("mfct_name") or mid})
+
+    # Enrich every meter with manufacturer / version decoded from its telegrams,
+    # unless meters.conf already set those fields explicitly.
+    for m in meters:
+        info = csv_meta.get(m["id"])
+        if not info:
+            continue
+        for field in ("mfct", "mfct_name", "version", "dev_type"):
+            if not m.get(field) and info.get(field):
+                m[field] = info[field]
 
     generic = generic_candidates()
     entries, counts = build_entries(generic, meters, args.install_date, csv_dates)
