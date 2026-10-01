@@ -1,12 +1,19 @@
 # wmbus-toolkit
 
-Collect, archive and decrypt wireless M-Bus telegrams from
-[wmbusmeters](https://github.com/wmbusmeters/wmbusmeters). Dedupes raw
-telegrams into a CSV, builds one combined AES key candidate file (published
-test vectors plus id / serial / date-derived keys), and validates keys against
-the collected traffic in a single run over all meters.
-Tested with Qundis Q water/heat 5.5. No meter data is hardcoded; everything
-comes from `meters.conf` or the command line.
+A vendor-neutral Swiss-army-knife for wireless M-Bus / OMS traffic captured with
+[wmbusmeters](https://github.com/wmbusmeters/wmbusmeters). It dedupes raw
+telegrams into a CSV, decodes device type and manufacturer for any vendor, builds
+one combined AES key-candidate file (published test vectors, a broad factory /
+default set, plus id / serial / date / manufacturer-derived keys), and validates
+keys against the collected traffic in a single run over all meters.
+
+Not tied to one device or one brand: the collector classifies every CI layout it
+sees (plain, Mode 5/7, the CI-0x78 vendor wrapper, Extended Link Layer, compact
+frames), and decryption tries the short- and long-TPL header layouts with both
+the TPL and link-layer IV address, so it decodes standard OMS Mode-5 traffic from
+many manufacturers, not just the Qundis Q water/heat 5.5 it was first built on.
+No meter data is hardcoded; everything comes from `meters.conf`, the meter's own
+telegrams, or the command line.
 
 ## Workflow
 
@@ -14,9 +21,12 @@ comes from `meters.conf` or the command line.
    key is available yet. This builds a history that can be decoded retroactively
    later.
 2. `wmbus-keygen` writes a single combined candidate file: generic defaults
-   (published AES / wM-Bus test vectors, byte patterns, ASCII words) plus keys
-   derived from id, serial, model and install date. Every line carries a scope
-   prefix so keycheck knows which key belongs to which meter.
+   (published AES / wM-Bus test vectors, byte patterns, a broad manufacturer /
+   FLAG-code and factory-default set) plus keys derived from id, serial, model,
+   install date and the meter's own manufacturer. Every line carries a scope
+   prefix so keycheck knows which key belongs to which meter. With
+   `--from-csv ... --all-meters` it builds candidates for every meter seen on the
+   air, filling in each meter's manufacturer and version from its telegrams.
 3. `wmbus-keycheck` tests keys against the collected telegrams, in one run over
    all meters. Each meter is tested with its own scoped keys plus the generic
    `all` keys. The match test is two-stage and does not report random hits.
@@ -80,6 +90,9 @@ Build candidates (one combined file):
 
     wmbus-keygen --meters meters.conf --from-csv /var/lib/wmbusmeters/telegrams.csv \
                  --out candidates.txt
+    # every meter seen on the air, manufacturer/version filled in from telegrams:
+    wmbus-keygen --from-csv /var/lib/wmbusmeters/telegrams.csv --all-meters \
+                 --out candidates.txt
     # or a single meter:
     wmbus-keygen --id 12345678 --serial 1234567890 --name MeterA \
                  --installed 2021-03-15 --out candidates.txt
@@ -122,14 +135,17 @@ same meter.
 
 Generic (`all`) categories: single repeated bytes, the NIST AESAVS KAT vectors
 (KeySbox and VarKey for AES-128, plus the FIPS-197 / SP 800-38A example key),
-published wM-Bus / OMS example keys (OMS Annex N, the wmbusmeters demo key),
-hex-culture constants (DEADBEEF & co.), Fibonacci / prime / stepping byte
-sequences, manufacturer names, common passwords and installer shorthands.
+published wM-Bus / OMS example keys (OMS Annex N, the wmbusmeters demo key, the
+ascending OMS test keys), hex-culture constants (DEADBEEF & co.), Fibonacci /
+prime / stepping byte sequences, a broad set of manufacturer names and 3-letter
+FLAG codes across many vendors, common passwords and installer shorthands.
 
 Per-meter (`<id>`) categories are built by a small combinator from the meter's
-raw sources (id, id little-endian, serial ASCII/BCD/int, model digits, and every
-date variant): pad / left-pad / repeat, pairwise concatenation in both orders,
-date XOR id, and MD5 / SHA-1 / SHA-256 of the source truncated to 16 bytes.
+raw sources (id, id little-endian, serial ASCII/BCD/int, model digits, the
+meter's manufacturer name / FLAG code, and every date variant): pad / left-pad /
+repeat, pairwise concatenation in both orders, date XOR id, and MD5 / SHA-1 /
+SHA-256 of the source truncated to 16 bytes. The manufacturer and version are
+read from the meter's own telegrams when not given in `meters.conf`.
 
 Date variants cover ASCII (`YYYYMMDD`, `DDMMYYYY`, `YYYY-MM-DD`, `DD.MM.YYYY`),
 BCD, and Unix timestamp (big/little-endian), plus date+time and time-only forms
@@ -163,20 +179,35 @@ no longer needed but still available:
     UNIT
     systemctl daemon-reload && systemctl enable --now wmbus-collect
 
-## Telegram structure (Qundis Q water/heat 5.5)
+## Telegram structure and supported layouts
 
-Each meter emits three telegram classes:
+The collector classifies every telegram by its CI byte and reports the class:
 
-| Class | Content |
-|-------|---------|
-| plain (CI 72, mode 0) | date and model version only |
-| aes5  (CI 72, mode 5) | encrypted, standard OMS |
-| wrap  (CI 78)         | Qundis wrapper, encrypted, carries the readings |
+| Class     | Meaning |
+|-----------|---------|
+| `plain`   | cleartext application layer (Mode 0) |
+| `aes5`    | TPL Security Mode 5, AES-CBC (standard OMS) |
+| `aes7`    | TPL Security Mode 7, AES-CBC with key derivation |
+| `wrap`    | vendor wrapper (CI 0x78), AES-CBC behind the `0D FF 5F` marker |
+| `ell`     | Extended Link Layer (CI 0x8C-0x8F), AES-CTR when secured |
+| `compact` | compact frame (CI 0x79), needs the matching format telegram |
 
-The wrapper payload sits behind the record marker `0D FF 5F`: a length byte,
-then 5 prefix bytes (`00 82 <2B counter> <access>`), then the AES-CBC ciphertext
-as a multiple of 16. The Mode-5 IV is M-field + id + version + type + 8x the
-access byte.
+Decryption covers the AES-CBC paths (`aes5` and the CI-0x78 `wrap`). It tries
+both the short TPL header (CI 0x7A and kin) and the long TPL header (CI 0x72 and
+kin), and for the long header seeds the IV from both the TPL address and the
+link-layer address, so relayed or gateway frames decode too. The Mode-5 IV is
+M-field + id + version + type + 8x the access byte. Because AES-CBC's IV only
+affects the first 16-byte block - which must decrypt to the OMS filler `2F2F` -
+trying several layouts never produces a false match.
+
+The `aes7`, `ell` and `compact` classes are recognised and reported (so the tool
+is useful as a general scanner across vendors) but not decoded by the
+key-guessing workflow: Mode 7 needs the per-message derived key, and the ELL uses
+AES-CTR with a different validator.
+
+For reference, the observed Qundis Q water/heat 5.5 wrapper payload sits behind
+`0D FF 5F`: a length byte, then 5 prefix bytes (`00 82 <2B counter> <access>`),
+then the AES-CBC ciphertext as a multiple of 16.
 
 ## Files
 
