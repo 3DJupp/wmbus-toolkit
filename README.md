@@ -103,9 +103,17 @@ sets a global fallback date; the per-meter `installed=` field in meters.conf
 overrides it. keygen prints a count per category and validates every key to
 exactly 32 hex characters before writing.
 
+Already know a key (printed on the meter, supplied by the provider, or found
+earlier)? Put it in meters.conf as `key=<32hex>` (or pass `--known-key` for a
+single meter). keygen writes it first in that meter's scope, as category
+`known`, so it is tried before any guess - and `wmbus-keycheck --meters
+meters.conf` picks it up directly, without needing a candidate file at all.
+
 Check (all meters in one run):
 
     wmbus-keycheck --csv /var/lib/wmbusmeters/telegrams.csv --keyfile candidates.txt
+    # known keys from meters.conf, no candidate file needed:
+    wmbus-keycheck --csv /var/lib/wmbusmeters/telegrams.csv --meters meters.conf
     # or targeted:
     wmbus-keycheck --csv .../telegrams.csv --id 12345678 --key <32hex>
 
@@ -140,11 +148,13 @@ ascending OMS test keys), hex-culture constants (DEADBEEF & co.), Fibonacci /
 prime / stepping byte sequences, a broad set of manufacturer names and 3-letter
 FLAG codes across many vendors, common passwords and installer shorthands.
 
-Per-meter (`<id>`) categories are built by a small combinator from the meter's
-raw sources (id, id little-endian, serial ASCII/BCD/int, model digits, the
-meter's manufacturer name / FLAG code, and every date variant): pad / left-pad /
-repeat, pairwise concatenation in both orders, date XOR id, and MD5 / SHA-1 /
-SHA-256 of the source truncated to 16 bytes. The manufacturer and version are
+Per-meter (`<id>`) categories: `known` is a key already on file (meters.conf
+`key=`), written first and ahead of every guess. The rest are built by a small
+combinator from the meter's raw sources (id, id little-endian, serial
+ASCII/BCD/int, model digits, the meter's manufacturer name / FLAG code, and
+every date variant): pad / left-pad / repeat, pairwise concatenation in both
+orders, date XOR id, and MD5 / SHA-1 / SHA-256 of the source truncated to 16
+bytes. The manufacturer and version are
 read from the meter's own telegrams when not given in `meters.conf`.
 
 Date variants cover ASCII (`YYYYMMDD`, `DDMMYYYY`, `YYYY-MM-DD`, `DD.MM.YYYY`),

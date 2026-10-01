@@ -468,6 +468,14 @@ def validate(key):
     return isinstance(key, (bytes, bytearray)) and len(key) == 16
 
 
+def clean_hex_key(s):
+    """A meters.conf/--known-key value -> 16 bytes, or raise ValueError."""
+    hx = s.strip().replace(" ", "").replace(":", "").replace("-", "")
+    if len(hx) != 32:
+        raise ValueError(f"key needs 32 hex chars, has {len(hx)}: {s!r}")
+    return bytes.fromhex(hx)
+
+
 def build_entries(generic, meters, global_install, csv_dates):
     """-> (entries, counts). entries = list of (scope, category, label, hex).
 
@@ -495,8 +503,25 @@ def build_entries(generic, meters, global_install, csv_dates):
 
     for m in meters:
         mid = m["id"]
-        cand = meter_candidates(m, dates_for_meter(m, global_install, csv_dates))
         seen_m = set()
+
+        # A key already known (meters.conf `key=`, or --key on a single meter)
+        # goes in first, under its own category, so it is tried before any
+        # guess and is never confused with a derived candidate.
+        known = m.get("key")
+        if known:
+            try:
+                kb = clean_hex_key(known)
+            except ValueError as e:
+                print(f"  meters.conf: {mid}: {e}", file=sys.stderr)
+                kb = None
+            if kb and validate(kb):
+                hx = kb.hex().upper()
+                seen_m.add(hx)
+                entries.append((mid, "known", "known_key", hx))
+                bump("known", mid)
+
+        cand = meter_candidates(m, dates_for_meter(m, global_install, csv_dates))
         for label, key in cand.items():
             if not validate(key):
                 continue
@@ -618,6 +643,9 @@ def main():
     ap.add_argument("--model", help="single meter: model number")
     ap.add_argument("--name", help="single meter: name")
     ap.add_argument("--installed", help="single meter: install date")
+    ap.add_argument("--known-key", metavar="HEX",
+                    help="single meter: a key already known (32 hex chars), "
+                         "written first and tried before any guess")
     ap.add_argument("--all-meters", action="store_true",
                     help="with --from-csv: build candidates for every meter seen "
                          "in the CSV, not only those in meters.conf")
@@ -628,7 +656,8 @@ def main():
     meters = wl.load_meters(args.meters) if args.meters else []
     if args.id:
         meters.append({"id": args.id, "serial": args.serial, "model": args.model,
-                       "name": args.name or args.id, "installed": args.installed})
+                       "name": args.name or args.id, "installed": args.installed,
+                       "key": args.known_key})
 
     csv_meta = collect_csv_meta(args.from_csv) if args.from_csv else {}
     csv_dates = collect_csv_dates(args.from_csv) if args.from_csv else {}
