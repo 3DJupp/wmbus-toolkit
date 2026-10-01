@@ -15,7 +15,9 @@
 #            mfct      - FLAG manufacturer code (e.g. QDS, KAM); usually auto-
 #                        detected from the telegrams, set only to override
 #            version   - meter version byte (2 hex); also auto-detected
-#            key       - if already known, 32 hex chars
+#            key       - if already known, 32 hex chars. keygen writes it first,
+#                        ahead of every guess (category `known`); keycheck
+#                        --meters meters.conf uses it directly, no keyfile needed
 #
 # serial, model, installed and mfct feed the candidate generator with more
 # derived keys. If absent, only id-based and generic candidates are built.

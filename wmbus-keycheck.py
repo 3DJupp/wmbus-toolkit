@@ -97,9 +97,30 @@ def parse_key_line(ln):
     return scope.strip(), (label or cand).strip()[:26], clean_key(cand)
 
 
-def gather_keys(args):
-    """-> list of (scope, label, key_bytes) from --key and/or --keyfile."""
+def known_keys_from_meters(path):
+    """-> list of (scope, label, key_bytes) for every meters.conf `key=` entry.
+
+    Put first by gather_keys, so a key already on file (read off the meter's
+    label, or supplied by the metering provider) is tried before any guess
+    from a candidate file, and works for --decode-all with no --keyfile at all.
+    """
     keys = []
+    for m in wl.load_meters(path):
+        raw = m.get("key")
+        if not raw:
+            continue
+        try:
+            keys.append((m["id"], "known_key", clean_key(raw)))
+        except ValueError as e:
+            print(f"  meters.conf: {m['id']}: {e}", file=sys.stderr)
+    return keys
+
+
+def gather_keys(args):
+    """-> list of (scope, label, key_bytes) from --meters/--key/--keyfile."""
+    keys = []
+    if args.meters:
+        keys += known_keys_from_meters(args.meters)
     if args.key:
         try:
             keys.append(("all", "--key", clean_key(args.key)))
@@ -116,7 +137,7 @@ def gather_keys(args):
                 if parsed:
                     keys.append(parsed)
     if not keys:
-        sys.exit("No key given. Use --key or --keyfile.")
+        sys.exit("No key given. Use --meters, --key or --keyfile.")
     return keys
 
 
@@ -249,6 +270,7 @@ def main():
     ap = argparse.ArgumentParser(description="Test AES keys against telegrams")
     ap.add_argument("--csv", default="telegrams.csv")
     ap.add_argument("--id", help="only this meter id")
+    ap.add_argument("--meters", help="meters.conf: use any `key=` already on file")
     ap.add_argument("--key", help="a single key, 32 hex chars")
     ap.add_argument("--keyfile", help="combined candidate file, one per line")
     ap.add_argument("--sample", type=int, default=40, help="telegrams per test")
