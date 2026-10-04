@@ -96,9 +96,14 @@ PUBLISHED_AES = {
 #   oms_annexN_profA: OMS Spec Vol.2 Annex N, Security Profile A message example.
 #   wmbm_readme_demo: the example key used throughout the wmbusmeters README and
 #                     its simulation files.
+#   oms_testkey_seq:  the ascending example key used in several OMS test frames.
+#   All are public test vectors, never real meter data.
 PUBLISHED_WMBUS = {
     "oms_annexN_profA": "0102030405060708090a0b0c0d0e0f11",
     "wmbm_readme_demo": "00112233445566778899aabbccddeeff",
+    "oms_testkey_seq": "000102030405060708090a0b0c0d0e0f",
+    "oms_testkey_seq_rev": "0f0e0d0c0b0a09080706050403020100",
+    "wmbm_alt_demo": "0123456789abcdef0123456789abcdef",
 }
 
 # 32-bit "hex culture" constants (repeated to 16 bytes).
@@ -114,13 +119,35 @@ HEX_OCTETS = [
     "fedcba9876543210", "0f0f0f0f0f0f0f0f", "aaaaaaaa55555555",
 ]
 
-# Manufacturer / vendor names to try as ASCII keys, several spellings each.
-MFCT_WORDS = [
-    "Qundis", "QUNDIS", "qundis", "Allmess", "ALLMESS", "Kamstrup", "KAMSTRUP",
-    "kamstrup", "Diehl", "DIEHL", "Techem", "TECHEM", "techem", "Engelmann",
-    "ENGELMANN", "Sensus", "SENSUS", "Itron", "ITRON", "Landis", "LandisGyr",
-    "Zenner", "ZENNER", "Sontex", "SONTEX",
+# Manufacturer / vendor names and their FLAG codes, tried as ASCII keys. Broad
+# on purpose: this is a multi-vendor tool, not a Qundis-only one. Each base word
+# is expanded to several spellings (title / upper / lower) automatically.
+MFCT_BASE = [
+    "Qundis", "Allmess", "Kamstrup", "Diehl", "Techem", "Engelmann", "Sensus",
+    "Itron", "Landis", "LandisGyr", "Zenner", "Sontex", "Elster", "Apator",
+    "Maddalena", "Axioma", "Aquametro", "Integra", "Hydrometer", "Gavazzi",
+    "Sappel", "Lorenz", "Relay", "Innotas", "BMeters", "Weptech", "Metrona",
+    "ista", "Viterra", "Minol", "Wehrle", "Padmess", "Micronova",
 ]
+# FLAG 3-letter manufacturer codes, tried verbatim and repeated to key length.
+MFCT_FLAG_CODES = [
+    "QDS", "LUG", "KAM", "TCH", "DME", "HYD", "SEN", "EFE", "SON", "ELS",
+    "ITW", "GWF", "NZR", "REL", "AMT", "BMT", "MAD", "AXI", "GAV", "ZEN",
+    "APT", "SAP", "LOR", "IST", "EMH", "DZG",
+]
+
+
+def _spellings(words):
+    """Expand each base word to title / upper / lower spellings, de-duplicated."""
+    out = []
+    for w in words:
+        for form in (w, w.upper(), w.lower()):
+            if form not in out:
+                out.append(form)
+    return out
+
+
+MFCT_WORDS = _spellings(MFCT_BASE)
 
 # Sample of the most common passwords (rockyou top list), padded to 16 bytes.
 ROCKYOU_TOP = [
@@ -137,6 +164,14 @@ INSTALLER_WORDS = [
     "INSTALL", "install", "SETUP", "setup", "SERVICE", "MASTER", "master",
     "ADMIN", "admin", "TEST", "test", "DEMO", "0000", "1111", "2222", "1234",
     "12345678", "00000000",
+]
+
+# Keyboard walks (QWERTY and the German QWERTZ layout), padded / repeated. People
+# who pick a key by "mashing a row" land on one of these surprisingly often.
+KEYBOARD_WALKS = [
+    "qwerty", "qwertz", "qwertyuiop", "qwertzuiop", "asdfghjkl", "asdfgh",
+    "zxcvbnm", "yxcvbnm", "1qaz2wsx", "1q2w3e4r", "qazwsx", "qwer1234",
+    "1qazxsw2", "q1w2e3r4", "zaqwsx", "abcd1234",
 ]
 
 
@@ -174,6 +209,18 @@ def generic_candidates():
     for step in (2, 3, 4):
         out.append(("sequence", f"count_step{step}",
                     bytes((i * step) & 0xFF for i in range(16))))
+    # 16- and 32-bit incrementing words, both byte orders (0000 0001 0002 ... and
+    # 00000000 00000001 ...). A common "obviously fake" placeholder key.
+    out.append(("sequence", "word16_be",
+                b"".join(i.to_bytes(2, "big") for i in range(8))))
+    out.append(("sequence", "word16_le",
+                b"".join(i.to_bytes(2, "little") for i in range(8))))
+    out.append(("sequence", "dword32_be",
+                b"".join(i.to_bytes(4, "big") for i in range(4))))
+    out.append(("sequence", "dword32_le",
+                b"".join(i.to_bytes(4, "little") for i in range(4))))
+    out.append(("sequence", "nibble_ladder",
+                bytes(((i & 0x0F) << 4 | (i & 0x0F)) for i in range(16))))
 
     # hex-culture constants and byte patterns
     for hx in HEX_QUADS:
@@ -191,20 +238,33 @@ def generic_candidates():
         n += 1
     out.append(("hexculture", "prime_bytes", bytes(primes)))
 
-    # ASCII: manufacturer names, common passwords, installer shorthands
+    # ASCII: manufacturer names, FLAG codes, common passwords, installer words
     for w in MFCT_WORDS:
         out.append(("ascii", f"mfct_{w[:12]}_pad0", fit16(w.encode())))
         out.append(("ascii", f"mfct_{w[:12]}_x4", rep16(w.encode())))
+    for c in MFCT_FLAG_CODES:
+        out.append(("ascii", f"flag_{c}_x4", rep16(c.encode())))
+        out.append(("ascii", f"flag_{c}_pad0", fit16(c.encode())))
     for w in ROCKYOU_TOP:
         out.append(("ascii", f"pw_{w[:12]}_pad0", fit16(w.encode())))
         out.append(("ascii", f"pw_{w[:12]}_padsp", fit16(w.encode(), b" ")))
     for w in INSTALLER_WORDS:
         out.append(("ascii", f"inst_{w[:12]}_pad0", fit16(w.encode())))
         out.append(("ascii", f"inst_{w[:12]}_x4", rep16(w.encode())))
+    for w in KEYBOARD_WALKS:
+        out.append(("ascii", f"kb_{w[:12]}_pad0", fit16(w.encode())))
+        out.append(("ascii", f"kb_{w[:12]}_x4", rep16(w.encode())))
     return out
 
 
 # ---------------------------------------------------------------- Derivation kit
+
+def _hash16(raw):
+    """(md5, sha1, sha256) of raw, each truncated to 16 bytes."""
+    return (hashlib.md5(raw).digest()[:16],
+            hashlib.sha1(raw).digest()[:16],
+            hashlib.sha256(raw).digest()[:16])
+
 
 def derive_keys(sources, pair_sources):
     """Systematically turn raw sources into 16-byte keys.
@@ -213,7 +273,10 @@ def derive_keys(sources, pair_sources):
                   variants, and MD5/SHA1/SHA256 truncated to 16 bytes when
                   hashable (hash-of-serial is a realistic lazy key).
     pair_sources: list of (name, raw_bytes) - concatenated pairwise in both
-                  orders, then padded/cut to 16.
+                  orders. Each concatenation is padded/cut to 16 *and* hashed
+                  (MD5/SHA1/SHA256, truncated). Hashing a concatenation of two
+                  meter facts - e.g. SHA256(mfct||id) or SHA256(id||date) - is
+                  the most common lazy KDF, so it is worth the extra lines.
 
     Returns {label: key_bytes}.
     """
@@ -226,22 +289,27 @@ def derive_keys(sources, pair_sources):
         out[f"0_{name}"] = lfit16(raw)
         out[f"{name}_x4"] = rep16(raw)
         if hashable:
-            out[f"{name}_md5"] = hashlib.md5(raw).digest()[:16]
-            out[f"{name}_sha1"] = hashlib.sha1(raw).digest()[:16]
-            out[f"{name}_sha256"] = hashlib.sha256(raw).digest()[:16]
+            md5, sha1, sha256 = _hash16(raw)
+            out[f"{name}_md5"] = md5
+            out[f"{name}_sha1"] = sha1
+            out[f"{name}_sha256"] = sha256
             # Further lazy-KDF shapes seen in the wild: the tail of sha256, a
             # wider digest truncated, and a double hash.
             out[f"{name}_sha256tail"] = hashlib.sha256(raw).digest()[-16:]
             out[f"{name}_sha512"] = hashlib.sha512(raw).digest()[:16]
             out[f"{name}_sha256x2"] = hashlib.sha256(hashlib.sha256(raw).digest()).digest()[:16]
     for (na, ra), (nb, rb) in itertools.permutations(pair_sources, 2):
-        if ra and rb:
-            out[f"{na}__{nb}"] = fit16(ra + rb)
-            # Hash of the concatenation, and an HMAC keyed by the first source:
-            # both are realistic when an installer script derives one key from
-            # two printed identifiers rather than storing a random one.
-            out[f"{na}__{nb}_sha256"] = hashlib.sha256(ra + rb).digest()[:16]
-            out[f"hmac_{na}_{nb}"] = hmac.new(ra, rb, hashlib.sha256).digest()[:16]
+        if not (ra and rb):
+            continue
+        cat = ra + rb
+        out[f"{na}__{nb}"] = fit16(cat)
+        md5, sha1, sha256 = _hash16(cat)
+        out[f"{na}__{nb}_md5"] = md5
+        out[f"{na}__{nb}_sha1"] = sha1
+        out[f"{na}__{nb}_sha256"] = sha256
+        # HMAC keyed by the first source: realistic when an installer script
+        # derives one key from two printed identifiers instead of storing random.
+        out[f"hmac_{na}_{nb}"] = hmac.new(ra, rb, hashlib.sha256).digest()[:16]
     return out
 
 
@@ -294,6 +362,15 @@ def meter_candidates(m, dates):
         sources += [("id_be", id_be, True), ("id_le", id_le, True),
                     ("id_ascii", id_hex.encode(), True)]
         pair += [("id_be", id_be), ("id_le", id_le)]
+        # id read as a decimal number (the digits printed on the label), packed
+        # into 4 bytes both ways - distinct from the BCD bytes above.
+        id_digits = "".join(c for c in id_hex if c.isdigit())
+        if id_digits:
+            idec = (int(id_digits) & 0xFFFFFFFF).to_bytes(4, "big")
+            sources += [("id_dec_be", idec, False), ("id_dec_le", idec[::-1], False)]
+            rev = id_digits[::-1]
+            sources.append(("id_rev_ascii", rev.encode(), True))
+            pair.append(("id_rev_ascii", rev.encode()))
 
     if m.get("serial"):
         digits, bcd = digits_and_bcd(m["serial"])
@@ -301,6 +378,10 @@ def meter_candidates(m, dates):
             be = (int(digits) & 0xFFFFFFFF).to_bytes(4, "big")
             sources += [("ser_ascii", digits.encode(), True), ("ser_bcd", bcd, True),
                         ("ser_int_be", be, False), ("ser_int_le", be[::-1], False)]
+            rev = digits[::-1]
+            _, rbcd = digits_and_bcd(rev)
+            sources += [("ser_rev_ascii", rev.encode(), True),
+                        ("ser_rev_bcd", rbcd, True)]
             pair += [("ser_bcd", bcd), ("ser_ascii", digits.encode())]
 
     if m.get("model"):
@@ -308,7 +389,45 @@ def meter_candidates(m, dates):
         if len(digits) >= 4:
             sources += [("model_ascii", digits.encode(), True), ("model_bcd", bcd, True)]
 
-    for k, d in enumerate(dates[:15]):
+    # Manufacturer-aware candidates: vendor name / FLAG code, alone and combined
+    # with the id. This is what makes the derivation multi-vendor rather than
+    # tuned to a single brand. mfct / mfct_name come from meters.conf or are
+    # filled in from the meter's own telegrams (see collect_csv_meta).
+    vendor_words = []
+    for w in (m.get("mfct"), m.get("mfct_name")):
+        if not w:
+            continue
+        for form in (w, w.upper(), w.lower()):
+            if form and form not in vendor_words:
+                vendor_words.append(form)
+    for w in vendor_words[:6]:
+        tag = "".join(c for c in w if c.isalnum())[:8] or "v"
+        sources.append((f"mfct_{tag}", w.encode(), True))
+        if id_be:
+            pair.append((f"mfct_{tag}", w.encode()))
+
+    # version byte, if known, as a short combinable source
+    ver = m.get("version")
+    if ver:
+        try:
+            vb = bytes.fromhex(ver) if len(ver) == 2 else ver.encode()
+            if vb:
+                pair.append(("ver", vb))
+        except ValueError:
+            pass
+
+    # Date sources: the known dates (already expanded by +/- date-window in
+    # dates_for_meter), plus the rounded-down primary date (first of the
+    # month/year), since install dates are often recorded rounded.
+    exp_dates = list(dates[:15])
+    if dates:
+        d0 = dates[0]
+        base = d0.date() if isinstance(d0, datetime.datetime) else d0
+        for r in (base.replace(day=1), base.replace(month=1, day=1)):
+            if r not in exp_dates:
+                exp_dates.append(r)
+
+    for k, d in enumerate(exp_dates):
         tag = "" if k == 0 else str(k + 1)
         dv = date_sources(d, tag)
         sources += dv
@@ -381,6 +500,33 @@ def dates_for_meter(m, global_install, csv_dates, window=0):
     return out
 
 
+def collect_csv_meta(csv_path):
+    """{meter_id: {mfct, mfct_name, version, dev_type}} from the collect CSV.
+
+    Lets keygen build manufacturer-aware candidates for a meter even when
+    meters.conf carries only its id, and lets --all-meters discover every meter
+    seen on the air.
+    """
+    meta = {}
+    if not csv_path or not os.path.exists(csv_path):
+        return meta
+    import csv as _csv
+    with open(csv_path, newline="") as fh:
+        for r in _csv.DictReader(fh):
+            mid = r.get("id")
+            if not mid or mid in meta:
+                continue
+            code = r.get("mfct", "")
+            meta[mid] = {
+                "mfct": code,
+                "mfct_name": wl.mfct_name(code) if code else "",
+                "version": r.get("version", ""),
+                "dev_type": r.get("dev_type", ""),
+                "encrypted": wl.is_encrypted(r),
+            }
+    return meta
+
+
 def collect_csv_dates(csv_path):
     """{meter_id: [dates]} decoded from plain telegrams in the collect CSV."""
     per = {}
@@ -407,6 +553,14 @@ def collect_csv_dates(csv_path):
 def validate(key):
     """True if key is exactly 16 bytes -> 32 hex chars."""
     return isinstance(key, (bytes, bytearray)) and len(key) == 16
+
+
+def clean_hex_key(s):
+    """A meters.conf/--known-key value -> 16 bytes, or raise ValueError."""
+    hx = s.strip().replace(" ", "").replace(":", "").replace("-", "")
+    if len(hx) != 32:
+        raise ValueError(f"key needs 32 hex chars, has {len(hx)}: {s!r}")
+    return bytes.fromhex(hx)
 
 
 def build_entries(generic, meters, global_install, csv_dates, date_window=0):
@@ -436,8 +590,25 @@ def build_entries(generic, meters, global_install, csv_dates, date_window=0):
 
     for m in meters:
         mid = m["id"]
-        cand = meter_candidates(m, dates_for_meter(m, global_install, csv_dates, date_window))
         seen_m = set()
+
+        # A key already known (meters.conf `key=`, or --key on a single meter)
+        # goes in first, under its own category, so it is tried before any
+        # guess and is never confused with a derived candidate.
+        known = m.get("key")
+        if known:
+            try:
+                kb = clean_hex_key(known)
+            except ValueError as e:
+                print(f"  meters.conf: {mid}: {e}", file=sys.stderr)
+                kb = None
+            if kb and validate(kb):
+                hx = kb.hex().upper()
+                seen_m.add(hx)
+                entries.append((mid, "known", "known_key", hx))
+                bump("known", mid)
+
+        cand = meter_candidates(m, dates_for_meter(m, global_install, csv_dates, date_window))
         for label, key in cand.items():
             if not validate(key):
                 continue
@@ -466,6 +637,8 @@ def category_of(label):
         return "model"
     if label.startswith(("id_", "0_id")):
         return "id"
+    if label.startswith("mfct"):
+        return "mfct"
     return "other"
 
 
@@ -560,6 +733,12 @@ def main():
     ap.add_argument("--model", help="single meter: model number")
     ap.add_argument("--name", help="single meter: name")
     ap.add_argument("--installed", help="single meter: install date")
+    ap.add_argument("--known-key", metavar="HEX",
+                    help="single meter: a key already known (32 hex chars), "
+                         "written first and tried before any guess")
+    ap.add_argument("--all-meters", action="store_true",
+                    help="with --from-csv: build candidates for every meter seen "
+                         "in the CSV, not only those in meters.conf")
     ap.add_argument("--legacy-runner", metavar="DIR",
                     help="also write the old per-file layout plus run.sh into DIR")
     args = ap.parse_args()
@@ -567,9 +746,29 @@ def main():
     meters = wl.load_meters(args.meters) if args.meters else []
     if args.id:
         meters.append({"id": args.id, "serial": args.serial, "model": args.model,
-                       "name": args.name or args.id, "installed": args.installed})
+                       "name": args.name or args.id, "installed": args.installed,
+                       "key": args.known_key})
 
+    csv_meta = collect_csv_meta(args.from_csv) if args.from_csv else {}
     csv_dates = collect_csv_dates(args.from_csv) if args.from_csv else {}
+
+    # --all-meters: build per-meter candidates for every meter seen in the CSV,
+    # not only the ones listed in meters.conf. Encrypted meters first.
+    if args.all_meters:
+        known_ids = {m["id"] for m in meters}
+        for mid, info in csv_meta.items():
+            if mid not in known_ids:
+                meters.append({"id": mid, "name": info.get("mfct_name") or mid})
+
+    # Enrich every meter with manufacturer / version decoded from its telegrams,
+    # unless meters.conf already set those fields explicitly.
+    for m in meters:
+        info = csv_meta.get(m["id"])
+        if not info:
+            continue
+        for field in ("mfct", "mfct_name", "version", "dev_type"):
+            if not m.get(field) and info.get(field):
+                m[field] = info[field]
 
     generic = generic_candidates()
     entries, counts = build_entries(generic, meters, args.install_date, csv_dates,
