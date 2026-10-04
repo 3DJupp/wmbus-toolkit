@@ -30,11 +30,36 @@ import wmbuslib as wl
 def check(v):
     """-> (ok, detail) for one vector dict.
 
-    Hard assertions: the correct key reproduces expect_prefix, and a bit-flipped
-    wrong key does NOT (guards against an IV/offset bug that would 'match' any
-    key). Record count is informational - the Qundis CI-78 wrapper payload is
-    not standard DIF/VIF from offset 0.
+    Every vector first asserts classify_encryption returns expect_class, so the
+    plain / aes5 / wrap discrimination a Qundis meter needs is pinned.
+
+    Plain vectors (key=null) then assert the cleartext record prefix. Encrypted
+    vectors assert the correct key reproduces expect_prefix AND that a bit-flipped
+    wrong key does NOT (guards against an IV/offset bug that 'matches' any key).
+    Record count is informational - the Qundis CI-78 wrapper payload is not
+    standard DIF/VIF from offset 0.
     """
+    want = v.get("expect_prefix", "").upper()
+    if not want:
+        return False, "vector has no expect_prefix to assert against"
+
+    parsed = wl.parse_frame(v["telegram"])
+    if not parsed:
+        return False, "telegram did not parse"
+    want_class = v.get("expect_class")
+    if want_class and parsed["encrypted"] != want_class:
+        return False, f"classified {parsed['encrypted']!r}, expected {want_class!r}"
+
+    # Plain vector: no key, validate the cleartext record prefix directly.
+    if v.get("key") in (None, ""):
+        app = wl.plain_app_bytes(v["telegram"])
+        got = app.hex().upper()
+        if not got.startswith(want):
+            return False, f"plain payload {got[:len(want)]} != expected {want}"
+        records = list(wl.iter_records(app))
+        return True, f"class {parsed['encrypted']}, prefix ok, {len(records)} record(s)"
+
+    # Encrypted vector.
     key = bytes.fromhex(v["key"])
     try:
         pt = wl.decrypt_frame(v["telegram"], key)
@@ -44,9 +69,6 @@ def check(v):
         return False, "decrypt returned no plaintext (unknown layout?)"
 
     got = pt.hex().upper()
-    want = v.get("expect_prefix", "").upper()
-    if not want:
-        return False, "vector has no expect_prefix to assert against"
     if not got.startswith(want):
         return False, f"plaintext {got[:len(want)]} != expected {want}"
 
@@ -59,7 +81,7 @@ def check(v):
         return False, "wrong key reproduced expect_prefix (IV/offset bug?)"
 
     records = list(wl.iter_records(pt.lstrip(b"\x2f")))
-    return True, f"prefix ok, wrong-key rejected, {len(records)} record(s)"
+    return True, f"class {parsed['encrypted']}, prefix ok, wrong-key rejected, {len(records)} rec"
 
 
 def main():

@@ -112,14 +112,22 @@ public, citable wM-Bus / OMS vectors in `tests/vectors.json`:
   the per-driver frames in `drivers/src/*.xmq`, the meter tables in
   `tests/*.sh`, and the telegram bodies in `simulations/*`.
 
-Nine vectors span seven drivers (including this project's own `qwaterv2` and
-`qheatv2`), all three CI layouts the decoder handles (72, 7A and the Qundis
-CI-78 wrapper), and both real and all-zero factory keys. They are reference
-vectors with published keys: they prove the AES-CBC path, the Mode-5 IV
-construction and the record parser are correct against independent sources, and
-never unlock a real meter. For each vector the runner asserts that the correct
-key reproduces the expected plaintext prefix and that a bit-flipped wrong key
-does not (so an IV/offset bug that "matches" any key is caught).
+Ten vectors span seven drivers (including this project's own `qwaterv2` and
+`qheatv2`), both real and all-zero factory keys, and all three telegram classes
+a Qundis Q water/heat meter emits:
+
+- **plain** (CI 72/7A, mode 0) - a real unencrypted qwaterv2 frame,
+- **aes5** (CI 72/7A, mode 5) - the shared AES-CBC path,
+- **wrap** (Qundis CI 78) - three encrypted qwaterv2/qheatv2 frames.
+
+They are reference vectors with published keys (or plain frames): they prove the
+AES-CBC path, the Mode-5 IV construction, the record parser and the class
+detection are correct against independent sources, and never unlock a real
+meter. For every vector the runner asserts that `classify_encryption` returns
+the expected class (plain / aes5 / wrap). For an encrypted vector it also asserts
+the correct key reproduces the expected plaintext prefix and that a bit-flipped
+wrong key does not (so an IV/offset bug that "matches" any key is caught); for a
+plain vector it asserts the cleartext record prefix.
 
     python3 tests/run_vectors.py              # all vectors, exit 0 only if all pass
     python3 tests/run_vectors.py --name qwaterv2_realkey
