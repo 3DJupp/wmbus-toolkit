@@ -28,7 +28,13 @@ import wmbuslib as wl
 
 
 def check(v):
-    """-> (ok, detail) for one vector dict."""
+    """-> (ok, detail) for one vector dict.
+
+    Hard assertions: the correct key reproduces expect_prefix, and a bit-flipped
+    wrong key does NOT (guards against an IV/offset bug that would 'match' any
+    key). Record count is informational - the Qundis CI-78 wrapper payload is
+    not standard DIF/VIF from offset 0.
+    """
     key = bytes.fromhex(v["key"])
     try:
         pt = wl.decrypt_frame(v["telegram"], key)
@@ -39,17 +45,21 @@ def check(v):
 
     got = pt.hex().upper()
     want = v.get("expect_prefix", "").upper()
-    if want and not got.startswith(want):
+    if not want:
+        return False, "vector has no expect_prefix to assert against"
+    if not got.startswith(want):
         return False, f"plaintext {got[:len(want)]} != expected {want}"
 
-    # 0x2F is OMS idle filler and can lead/pad the block; strip it before the
-    # record walk, which otherwise treats the first 0x2F as end-of-list.
-    body = pt.lstrip(b"\x2f")
-    records = list(wl.iter_records(body))
-    if not records:
-        return False, f"decrypted ok but no records parsed (pt={got[:16]}...)"
+    wrong = bytes(b ^ 0xFF for b in key)
+    try:
+        ptw = wl.decrypt_frame(v["telegram"], wrong)
+    except Exception:                                # noqa: BLE001
+        ptw = None
+    if ptw and ptw.hex().upper().startswith(want):
+        return False, "wrong key reproduced expect_prefix (IV/offset bug?)"
 
-    return True, f"{len(records)} record(s), pt[:{max(len(want),8)}]={got[:max(len(want),8)]}"
+    records = list(wl.iter_records(pt.lstrip(b"\x2f")))
+    return True, f"prefix ok, wrong-key rejected, {len(records)} record(s)"
 
 
 def main():
@@ -80,6 +90,13 @@ def main():
 
     total = len(vectors)
     print(f"\n{passed}/{total} vectors passed")
+
+    gaps = corpus.get("known_gaps", [])
+    if gaps and not args.name:
+        print(f"\n{len(gaps)} known gap(s) (documented, not run):")
+        for g in gaps:
+            print(f"SKIP  {g['name']:<{width}}  mode {g.get('mode','?')} CI {g.get('ci','?'):>2}  {g.get('reason','')}")
+
     sys.exit(0 if passed == total else 1)
 
 

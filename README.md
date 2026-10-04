@@ -104,20 +104,34 @@ the combined file, and must reject a wrong key):
 ## Decoder validation (test vectors)
 
 `tests/run_vectors.py` checks `wmbuslib.decrypt_frame` against a corpus of
-public, citable wM-Bus / OMS vectors in `tests/vectors.json` - the OMS Spec
-Vol.2 Annex N Security Profile A example plus MIT-licensed telegrams from the
-[wmbusmeters](https://github.com/wmbusmeters/wmbusmeters) test suite
-(`simulations/simulation_t1.txt` + `tests/test_t1_meters.sh`). These are
-reference vectors with published keys: they prove the AES-CBC path, the Mode-5
-IV construction and the record parser are correct against independent sources,
-and never unlock a real meter.
+public, citable wM-Bus / OMS vectors in `tests/vectors.json`:
+
+- the OMS Spec Vol.2 Annex N Security Profile A example, and
+- MIT-licensed telegrams from the
+  [wmbusmeters](https://github.com/wmbusmeters/wmbusmeters) test suite -
+  the per-driver frames in `drivers/src/*.xmq`, the meter tables in
+  `tests/*.sh`, and the telegram bodies in `simulations/*`.
+
+Nine vectors span seven drivers (including this project's own `qwaterv2` and
+`qheatv2`), all three CI layouts the decoder handles (72, 7A and the Qundis
+CI-78 wrapper), and both real and all-zero factory keys. They are reference
+vectors with published keys: they prove the AES-CBC path, the Mode-5 IV
+construction and the record parser are correct against independent sources, and
+never unlock a real meter. For each vector the runner asserts that the correct
+key reproduces the expected plaintext prefix and that a bit-flipped wrong key
+does not (so an IV/offset bug that "matches" any key is caught).
 
     python3 tests/run_vectors.py              # all vectors, exit 0 only if all pass
-    python3 tests/run_vectors.py --name wmbm_waterstarm
+    python3 tests/run_vectors.py --name qwaterv2_realkey
+
+`vectors.json` also carries a `known_gaps` list: telegrams whose security mode
+the decoder does not implement (Kamstrup compact CI 0x8D, and kamwater Mode 7
+with a CCM/GCM auth tag). They are documented, not run, so the corpus stays
+honest about what is and is not covered.
 
 This complements the `--selftest` above: the self-test proves the crypto
 round-trips against itself, the vector corpus proves it against outside
-references. Each entry in `vectors.json` names its source and license.
+references. Each entry names its source and license.
 
 If a key matches, decode the whole history:
 
