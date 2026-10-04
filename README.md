@@ -101,6 +101,24 @@ the combined file, and must reject a wrong key):
 
     wmbus-keycheck --selftest --keyfile candidates.txt
 
+## Decoder validation (test vectors)
+
+`tests/run_vectors.py` checks `wmbuslib.decrypt_frame` against a corpus of
+public, citable wM-Bus / OMS vectors in `tests/vectors.json` - the OMS Spec
+Vol.2 Annex N Security Profile A example plus MIT-licensed telegrams from the
+[wmbusmeters](https://github.com/wmbusmeters/wmbusmeters) test suite
+(`simulations/simulation_t1.txt` + `tests/test_t1_meters.sh`). These are
+reference vectors with published keys: they prove the AES-CBC path, the Mode-5
+IV construction and the record parser are correct against independent sources,
+and never unlock a real meter.
+
+    python3 tests/run_vectors.py              # all vectors, exit 0 only if all pass
+    python3 tests/run_vectors.py --name wmbm_waterstarm
+
+This complements the `--selftest` above: the self-test proves the crypto
+round-trips against itself, the vector corpus proves it against outside
+references. Each entry in `vectors.json` names its source and license.
+
 If a key matches, decode the whole history:
 
     wmbus-keycheck --csv .../telegrams.csv --id 12345678 \
@@ -129,11 +147,17 @@ sequences, manufacturer names, common passwords and installer shorthands.
 Per-meter (`<id>`) categories are built by a small combinator from the meter's
 raw sources (id, id little-endian, serial ASCII/BCD/int, model digits, and every
 date variant): pad / left-pad / repeat, pairwise concatenation in both orders,
-date XOR id, and MD5 / SHA-1 / SHA-256 of the source truncated to 16 bytes.
+date XOR id, and a spread of lazy-KDF hash shapes - MD5, SHA-1, SHA-256 (head
+and tail 16 bytes), SHA-512 head, double SHA-256, SHA-256 of each concatenation,
+and an HMAC-SHA-256 keyed by the first of a pair. These cover the realistic case
+where an installer script derived one key from printed identifiers instead of
+storing a random one.
 
 Date variants cover ASCII (`YYYYMMDD`, `DDMMYYYY`, `YYYY-MM-DD`, `DD.MM.YYYY`),
 BCD, and Unix timestamp (big/little-endian), plus date+time and time-only forms
-when a time is known.
+when a time is known. `--date-window N` additionally derives keys for +/- N days
+around each known date, which catches a commissioning date that is off by a day
+or shifted by a timezone.
 
 ### Legacy per-file layout
 
@@ -184,6 +208,8 @@ access byte.
     wmbus-collect.py     collect telegrams
     wmbus-keygen.py      build candidates
     wmbus-keycheck.py    test keys
+    tests/vectors.json   public OMS / wmbusmeters test vectors (sourced, cited)
+    tests/run_vectors.py validate the decoder against those vectors
     meters.conf.example  template with mock data
     install.sh           installer
 

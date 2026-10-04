@@ -1,0 +1,74 @@
+{
+  "_about": [
+    "Public, citable wM-Bus / OMS test vectors for validating the decoder in",
+    "wmbuslib.decrypt_frame. These are reference vectors with published keys, not",
+    "default-key guesses: they prove the AES-CBC path and record parser are",
+    "correct, and they never unlock a real meter. Each entry names its source.",
+    "The wmbusmeters entries are taken from that project's MIT-licensed test",
+    "suite (simulations/simulation_t1.txt + tests/test_t1_meters.sh).",
+    "expect_prefix is the first bytes of the decrypted plaintext; 2F2F is the OMS",
+    "idle-filler marker that signals a correct key."
+  ],
+  "vectors": [
+    {
+      "name": "oms_profileA_selfgen",
+      "driver": "oms",
+      "mode": 5,
+      "ci": "7A",
+      "id": "68347172",
+      "key": "0102030405060708090A0B0C0D0E0F11",
+      "telegram": "1E442D2C7271346801077A2A000005FA6ABCF4E3258C054D84974650008140",
+      "expect_prefix": "2F2F0C13913412000B3B100200422F2F",
+      "source": "OMS Spec Vol.2 Annex N, Security Profile A example key (FIPS-197 / 0102..0F11); frame synthesised locally and verified round-trip.",
+      "license": "self-generated"
+    },
+    {
+      "name": "wmbm_fhkvdataiv",
+      "driver": "fhkvdataiv",
+      "mode": 5,
+      "ci": "7A",
+      "id": "14542076",
+      "key": "FCF41938F63432975B52505F547FCEDF",
+      "telegram": "4E4468507620541494087AAD004005089D86B62A329B3439873999738F82461ABDE3C7AC78692B363F3B41EB68607F9C9160F550769B065B6EA00A2E44346E29FF5DC5CB86283C69324AD33D137F6F",
+      "expect_prefix": "2F2F036E",
+      "source": "wmbusmeters simulations/simulation_t1.txt + tests/test_t1_meters.sh",
+      "license": "MIT (wmbusmeters/wmbusmeters)"
+    },
+    {
+      "name": "wmbm_waterstarm",
+      "driver": "waterstarm",
+      "mode": 5,
+      "ci": "7A",
+      "id": "20096221",
+      "key": "BEDB81B52C29B5C143388CBB0D15A051",
+      "telegram": "3944FA122162092002067A3600202567C94D48D00DC47B11213E23383DB51968A705AAFA60C60E263D50CD259D7C9A03FD0C08000002FD0B0011",
+      "expect_prefix": "2F2F046D",
+      "source": "wmbusmeters simulations/simulation_t1.txt + tests/test_t1_meters.sh",
+      "license": "MIT (wmbusmeters/wmbusmeters)"
+    },
+    {
+      "name": "wmbm_aventieswm",
+      "driver": "aventieswm",
+      "mode": 5,
+      "ci": "72",
+      "id": "61070071",
+      "key": "A004EB23329A477F1DD2D7820B56EB3D",
+      "telegram": "76442104710007612507727100076121042507B5006005E2E95A3C2A1279A5415E6732679B43369FD5FDDDD783EEEBB48236D34E7C94AF0A18A5FDA5F7D64111EB42D4D891622139F2952F9D12A20088DFA4CF8123871123EE1F6C1DCEA414879DDB4E05E508F1826D7EFBA6964DF804C9261EA23BBF03",
+      "expect_prefix": "2F2F0413",
+      "source": "wmbusmeters simulations/simulation_t1.txt + tests/test_t1_meters.sh",
+      "license": "MIT (wmbusmeters/wmbusmeters)"
+    },
+    {
+      "name": "wmbm_unismart_zerokey",
+      "driver": "unismart",
+      "mode": 5,
+      "ci": "7A",
+      "id": "00043094",
+      "key": "00000000000000000000000000000000",
+      "telegram": "6044B8059430040001037A1D005085E2B670BCF1A5C87E0C1A51DA18924EF984613DA2A9CD39D8F4C7208326C76D42DBEADF80D574192B71BD7C4F56A7F1513151768A9DB804883B28CB085CA2D0F7438C361CB9E2734712ED9BFBB2A14EF55208",
+      "expect_prefix": "2F2F0C78",
+      "source": "wmbusmeters simulations/simulation_t1.txt + tests/test_t1_meters.sh (all-zero factory key)",
+      "license": "MIT (wmbusmeters/wmbusmeters)"
+    }
+  ]
+}
