@@ -29,6 +29,7 @@ import argparse
 import calendar
 import datetime
 import hashlib
+import hmac
 import itertools
 import os
 import sys
@@ -292,6 +293,11 @@ def derive_keys(sources, pair_sources):
             out[f"{name}_md5"] = md5
             out[f"{name}_sha1"] = sha1
             out[f"{name}_sha256"] = sha256
+            # Further lazy-KDF shapes seen in the wild: the tail of sha256, a
+            # wider digest truncated, and a double hash.
+            out[f"{name}_sha256tail"] = hashlib.sha256(raw).digest()[-16:]
+            out[f"{name}_sha512"] = hashlib.sha512(raw).digest()[:16]
+            out[f"{name}_sha256x2"] = hashlib.sha256(hashlib.sha256(raw).digest()).digest()[:16]
     for (na, ra), (nb, rb) in itertools.permutations(pair_sources, 2):
         if not (ra and rb):
             continue
@@ -301,6 +307,9 @@ def derive_keys(sources, pair_sources):
         out[f"{na}__{nb}_md5"] = md5
         out[f"{na}__{nb}_sha1"] = sha1
         out[f"{na}__{nb}_sha256"] = sha256
+        # HMAC keyed by the first source: realistic when an installer script
+        # derives one key from two printed identifiers instead of storing random.
+        out[f"hmac_{na}_{nb}"] = hmac.new(ra, rb, hashlib.sha256).digest()[:16]
     return out
 
 
@@ -407,9 +416,10 @@ def meter_candidates(m, dates):
         except ValueError:
             pass
 
-    # Installation dates are often recorded rounded (first of the month/year a
-    # meter went into service), so round the primary date down and try those too.
-    exp_dates = list(dates[:3])
+    # Date sources: the known dates (already expanded by +/- date-window in
+    # dates_for_meter), plus the rounded-down primary date (first of the
+    # month/year), since install dates are often recorded rounded.
+    exp_dates = list(dates[:15])
     if dates:
         d0 = dates[0]
         base = d0.date() if isinstance(d0, datetime.datetime) else d0
@@ -457,18 +467,32 @@ def parse_install_date(s):
     return None
 
 
-def dates_for_meter(m, global_install, csv_dates):
+def with_window(d, window):
+    """Yield d and, when window > 0, +/- window days around it (off-by-one /
+    timezone-shifted commissioning dates are a common lazy-key cause)."""
+    yield d
+    if not window:
+        return
+    step = datetime.timedelta(days=1)
+    for n in range(1, window + 1):
+        yield d - n * step
+        yield d + n * step
+
+
+def dates_for_meter(m, global_install, csv_dates, window=0):
     """Ordered, de-duplicated dates for a meter: explicit install date first,
-    then dates decoded from that meter's plain telegrams."""
+    then dates decoded from that meter's plain telegrams, each optionally
+    expanded by +/- `window` days."""
     out, seen = [], set()
 
     def add(d):
         if d is None:
             return
-        key = d.isoformat()
-        if key not in seen:
-            seen.add(key)
-            out.append(d)
+        for dd in with_window(d, window):
+            key = dd.isoformat()
+            if key not in seen:
+                seen.add(key)
+                out.append(dd)
 
     add(parse_install_date(m.get("installed") or global_install))
     for d in csv_dates.get(m.get("id"), []):
@@ -539,7 +563,7 @@ def clean_hex_key(s):
     return bytes.fromhex(hx)
 
 
-def build_entries(generic, meters, global_install, csv_dates):
+def build_entries(generic, meters, global_install, csv_dates, date_window=0):
     """-> (entries, counts). entries = list of (scope, category, label, hex).
 
     Dedup rule: no key is tested twice against the same meter. All-scope hexes
@@ -584,7 +608,7 @@ def build_entries(generic, meters, global_install, csv_dates):
                 entries.append((mid, "known", "known_key", hx))
                 bump("known", mid)
 
-        cand = meter_candidates(m, dates_for_meter(m, global_install, csv_dates))
+        cand = meter_candidates(m, dates_for_meter(m, global_install, csv_dates, date_window))
         for label, key in cand.items():
             if not validate(key):
                 continue
@@ -701,6 +725,9 @@ def main():
                     help="collect CSV: decode install/billing dates from plain telegrams")
     ap.add_argument("--install-date",
                     help="global fallback install date (YYYY-MM-DD[ HH:MM] or DD.MM.YYYY)")
+    ap.add_argument("--date-window", type=int, default=0, metavar="N",
+                    help="also derive keys for +/- N days around each known date "
+                         "(covers off-by-one / timezone-shifted commissioning dates)")
     ap.add_argument("--id", help="single meter: meter id")
     ap.add_argument("--serial", help="single meter: serial number")
     ap.add_argument("--model", help="single meter: model number")
@@ -744,7 +771,8 @@ def main():
                 m[field] = info[field]
 
     generic = generic_candidates()
-    entries, counts = build_entries(generic, meters, args.install_date, csv_dates)
+    entries, counts = build_entries(generic, meters, args.install_date, csv_dates,
+                                    args.date_window)
 
     outdir = os.path.dirname(args.out)
     if outdir:

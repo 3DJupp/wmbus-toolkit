@@ -122,6 +122,46 @@ the combined file, and must reject a wrong key):
 
     wmbus-keycheck --selftest --keyfile candidates.txt
 
+## Decoder validation (test vectors)
+
+`tests/run_vectors.py` checks `wmbuslib.decrypt_frame` against a corpus of
+public, citable wM-Bus / OMS vectors in `tests/vectors.json`:
+
+- the OMS Spec Vol.2 Annex N Security Profile A example, and
+- MIT-licensed telegrams from the
+  [wmbusmeters](https://github.com/wmbusmeters/wmbusmeters) test suite -
+  the per-driver frames in `drivers/src/*.xmq`, the meter tables in
+  `tests/*.sh`, and the telegram bodies in `simulations/*`.
+
+Ten vectors span seven drivers (including this project's own `qwaterv2` and
+`qheatv2`), both real and all-zero factory keys, and all three telegram classes
+a Qundis Q water/heat meter emits:
+
+- **plain** (CI 72/7A, mode 0) - a real unencrypted qwaterv2 frame,
+- **aes5** (CI 72/7A, mode 5) - the shared AES-CBC path,
+- **wrap** (Qundis CI 78) - three encrypted qwaterv2/qheatv2 frames.
+
+They are reference vectors with published keys (or plain frames): they prove the
+AES-CBC path, the Mode-5 IV construction, the record parser and the class
+detection are correct against independent sources, and never unlock a real
+meter. For every vector the runner asserts that `classify_encryption` returns
+the expected class (plain / aes5 / wrap). For an encrypted vector it also asserts
+the correct key reproduces the expected plaintext prefix and that a bit-flipped
+wrong key does not (so an IV/offset bug that "matches" any key is caught); for a
+plain vector it asserts the cleartext record prefix.
+
+    python3 tests/run_vectors.py              # all vectors, exit 0 only if all pass
+    python3 tests/run_vectors.py --name qwaterv2_realkey
+
+`vectors.json` also carries a `known_gaps` list: telegrams whose security mode
+the decoder does not implement (Kamstrup compact CI 0x8D, and kamwater Mode 7
+with a CCM/GCM auth tag). They are documented, not run, so the corpus stays
+honest about what is and is not covered.
+
+This complements the `--selftest` above: the self-test proves the crypto
+round-trips against itself, the vector corpus proves it against outside
+references. Each entry names its source and license.
+
 If a key matches, decode the whole history:
 
     wmbus-keycheck --csv .../telegrams.csv --id 12345678 \
@@ -155,17 +195,21 @@ Per-meter (`<id>`) categories: `known` is a key already on file (meters.conf
 combinator from the meter's raw sources (id big/little-endian, id as a decimal
 number, serial ASCII/BCD/int, reversed-digit forms of id and serial, model
 digits, the meter's manufacturer name / FLAG code, and every date variant):
-pad / left-pad / repeat, date XOR id, MD5 / SHA-1 / SHA-256 of the source
-truncated to 16 bytes, and pairwise concatenation in both orders - each
-concatenation both padded *and* hashed, since `SHA256(mfct||id)` or
-`SHA256(id||date)` is the most common lazy key-derivation. The manufacturer and
-version are read from the meter's own telegrams when not given in `meters.conf`.
+pad / left-pad / repeat, date XOR id, and a spread of lazy-KDF hash shapes -
+MD5, SHA-1, SHA-256 (head and tail 16 bytes), SHA-512 head and double SHA-256 of
+the source, and pairwise concatenation in both orders - each concatenation
+padded, MD5/SHA-1/SHA-256-hashed *and* HMAC-SHA-256'd (keyed by the first
+source), since `SHA256(mfct||id)` or `SHA256(id||date)` is the most common lazy
+key-derivation. The manufacturer and version are read from the meter's own
+telegrams when not given in `meters.conf`.
 
 Date variants cover ASCII (`YYYYMMDD`, `DDMMYYYY`, `YYYY-MM-DD`, `DD.MM.YYYY`),
 BCD, and Unix timestamp (big/little-endian), plus date+time and time-only forms
 when a time is known. The primary install date is also rounded down to the first
 of its month and the first of its year, since commissioning dates are often
-recorded that way.
+recorded that way. `--date-window N` additionally derives keys for +/- N days
+around each known date, which catches a commissioning date that is off by a day
+or shifted by a timezone.
 
 ### Legacy per-file layout
 
@@ -231,6 +275,8 @@ then the AES-CBC ciphertext as a multiple of 16.
     wmbus-collect.py     collect telegrams
     wmbus-keygen.py      build candidates
     wmbus-keycheck.py    test keys
+    tests/vectors.json   public OMS / wmbusmeters test vectors (sourced, cited)
+    tests/run_vectors.py validate the decoder against those vectors
     meters.conf.example  template with mock data
     install.sh           installer
 
