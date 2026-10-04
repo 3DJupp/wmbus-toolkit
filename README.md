@@ -145,21 +145,27 @@ Generic (`all`) categories: single repeated bytes, the NIST AESAVS KAT vectors
 (KeySbox and VarKey for AES-128, plus the FIPS-197 / SP 800-38A example key),
 published wM-Bus / OMS example keys (OMS Annex N, the wmbusmeters demo key, the
 ascending OMS test keys), hex-culture constants (DEADBEEF & co.), Fibonacci /
-prime / stepping byte sequences, a broad set of manufacturer names and 3-letter
-FLAG codes across many vendors, common passwords and installer shorthands.
+prime / stepping byte sequences (including 16- and 32-bit incrementing words and
+the nibble ladder), a broad set of manufacturer names and 3-letter FLAG codes
+across many vendors, common passwords, installer shorthands, and QWERTY / QWERTZ
+keyboard walks.
 
 Per-meter (`<id>`) categories: `known` is a key already on file (meters.conf
 `key=`), written first and ahead of every guess. The rest are built by a small
-combinator from the meter's raw sources (id, id little-endian, serial
-ASCII/BCD/int, model digits, the meter's manufacturer name / FLAG code, and
-every date variant): pad / left-pad / repeat, pairwise concatenation in both
-orders, date XOR id, and MD5 / SHA-1 / SHA-256 of the source truncated to 16
-bytes. The manufacturer and version are
-read from the meter's own telegrams when not given in `meters.conf`.
+combinator from the meter's raw sources (id big/little-endian, id as a decimal
+number, serial ASCII/BCD/int, reversed-digit forms of id and serial, model
+digits, the meter's manufacturer name / FLAG code, and every date variant):
+pad / left-pad / repeat, date XOR id, MD5 / SHA-1 / SHA-256 of the source
+truncated to 16 bytes, and pairwise concatenation in both orders - each
+concatenation both padded *and* hashed, since `SHA256(mfct||id)` or
+`SHA256(id||date)` is the most common lazy key-derivation. The manufacturer and
+version are read from the meter's own telegrams when not given in `meters.conf`.
 
 Date variants cover ASCII (`YYYYMMDD`, `DDMMYYYY`, `YYYY-MM-DD`, `DD.MM.YYYY`),
 BCD, and Unix timestamp (big/little-endian), plus date+time and time-only forms
-when a time is known.
+when a time is known. The primary install date is also rounded down to the first
+of its month and the first of its year, since commissioning dates are often
+recorded that way.
 
 ### Legacy per-file layout
 
