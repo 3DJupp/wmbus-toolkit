@@ -167,6 +167,19 @@ If a key matches, decode the whole history:
     wmbus-keycheck --csv .../telegrams.csv --id 12345678 \
                    --key <32hex> --decode-all --out plaintext.csv
 
+`--decode-all` now writes scaled physical values, not just raw record bytes:
+each row carries `quantity`, `value` and `unit` (e.g. `volume 26.546 m^3`,
+`energy 3061 kWh`, `flow_temp`, plus decoded `date` / `datetime`) alongside the
+raw `dif`/`vif`/`value_hex`. Records whose VIF is not modelled still appear with
+the raw bytes and an empty value. The value decoder covers standard EN 13757-3
+DIF/VIF records (the plain and aes5 classes); the Qundis CI-78 wrapper payload
+is vendor-specific and not value-decoded yet (a dedicated driver is the
+follow-up), though its key is still found and the frame still decrypts.
+
+A `partial … likely coincidence` line is only shown once enough telegrams were
+tried to make the ratio meaningful, so a meter with just two or three telegrams
+no longer prints spurious partials.
+
 ### Candidate file format
 
 Each line is `<scope>:<label>=<32 hex>`:

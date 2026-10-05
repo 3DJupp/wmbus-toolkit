@@ -77,8 +77,12 @@ def test_key(rows, key, sample):
 
 def show(plain):
     print("     decrypted:", plain[:16].hex().upper(), "...")
-    for dif, vif, val in wl.decode_records(plain)[:6]:
-        print(f"       DIF {dif} VIF {vif}  = {val}")
+    for r in wl.decode_values(plain)[:8]:
+        if r["value"] is not None:
+            unit = f" {r['unit']}" if r["unit"] else ""
+            print(f"       {r['quantity']:<12} = {r['value']}{unit}")
+        else:
+            print(f"       DIF {r['dif']} VIF {r['vif']}  = {r['raw']}  (raw)")
 
 
 def parse_key_line(ln):
@@ -169,7 +173,10 @@ def run_check(per, keys, sample):
                 if ex:
                     show(ex)
                 break
-            if tries and hits / tries >= PARTIAL_RATIO:
+            # Only mention a partial once enough telegrams were tried to make
+            # the ratio meaningful; on a meter with 2-3 telegrams a single
+            # coincidental decrypt is noise, not a signal.
+            if tries >= MATCH_MIN_HITS and hits / tries >= PARTIAL_RATIO:
                 print(f"  partial {label}   {hits}/{tries} - likely coincidence")
         if not found:
             print("  no candidate matches")
@@ -180,7 +187,8 @@ def run_check(per, keys, sample):
 
 
 def run_decode_all(per, keys, out_path, sample):
-    fields = ["first_seen", "id", "dif", "vif", "value_hex", "telegram"]
+    fields = ["first_seen", "id", "quantity", "value", "unit",
+              "dif", "vif", "value_hex", "telegram"]
     written = 0
     with open(out_path, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=fields)
@@ -199,9 +207,11 @@ def run_decode_all(per, keys, out_path, sample):
                     continue
                 if not wl.looks_valid(plain, r["telegram"]):
                     continue
-                for dif, vif, val in wl.decode_records(plain):
+                for rec in wl.decode_values(plain):
                     w.writerow({"first_seen": r["first_seen"], "id": mid,
-                                "dif": dif, "vif": vif, "value_hex": val,
+                                "quantity": rec["quantity"], "value": rec["value"],
+                                "unit": rec["unit"], "dif": rec["dif"],
+                                "vif": rec["vif"], "value_hex": rec["raw"],
                                 "telegram": r["telegram"]})
                     written += 1
     print(f"\n{written} records -> {out_path}")

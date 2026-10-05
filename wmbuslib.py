@@ -21,6 +21,7 @@ wM-Bus scanner and not just a single-vendor decoder.
 
 import csv
 import datetime
+import struct
 import os
 
 try:
@@ -398,6 +399,99 @@ def decode_records(plain):
              "".join(f"{v:02X}" for v in vifs),
              data[::-1].hex().upper())
             for dif, vifs, data in iter_records(plain[start:])]
+
+
+# ---------------------------------------------------------------- Value decode
+
+def _dif_number(dif, data):
+    """Numeric value of a record's data per its DIF data field (EN 13757-3).
+
+    Binary ints are little-endian two's complement; BCD is little-endian with
+    two digits per byte. Returns an int/float, or None for types we don't scale.
+    """
+    n = dif & 0x0F
+    if n in (0x1, 0x2, 0x3, 0x4, 0x6, 0x7):            # binary integer
+        return int.from_bytes(data, "little", signed=True)
+    if n == 0x5:                                        # 32-bit IEEE real
+        return struct.unpack("<f", data)[0] if len(data) == 4 else None
+    if n in (0x9, 0xA, 0xB, 0xC, 0xE):                  # packed BCD, LE
+        digits = "".join(f"{b:02X}" for b in reversed(data))
+        neg = digits[:1] == "F"                         # F in the top nibble = sign
+        if neg:
+            digits = digits[1:]
+        try:
+            val = int(digits)
+        except ValueError:
+            return None
+        return -val if neg else val
+    return None
+
+
+# VIF primary table: base -> (quantity, unit, exponent_fn(vif)). Covers the
+# quantities a water/heat/HCA meter carries; anything else falls back to hex.
+def _vif_spec(vif):
+    v = vif & 0x7F
+    if 0x00 <= v <= 0x07:
+        return "energy", "Wh", (v & 7) - 3
+    if 0x08 <= v <= 0x0F:
+        return "energy", "J", (v & 7)
+    if 0x10 <= v <= 0x17:
+        return "volume", "m^3", (v & 7) - 6
+    if 0x18 <= v <= 0x1F:
+        return "mass", "kg", (v & 7) - 3
+    if 0x28 <= v <= 0x2F:
+        return "power", "W", (v & 7) - 3
+    if 0x38 <= v <= 0x3F:
+        return "volume_flow", "m^3/h", (v & 7) - 6
+    if 0x58 <= v <= 0x5B:
+        return "flow_temp", "C", (v & 3) - 3
+    if 0x5C <= v <= 0x5F:
+        return "return_temp", "C", (v & 3) - 3
+    if 0x60 <= v <= 0x63:
+        return "temp_diff", "K", (v & 3) - 3
+    if 0x64 <= v <= 0x67:
+        return "ext_temp", "C", (v & 3) - 3
+    if v == 0x6E:
+        return "hca_units", "", 0                       # dimensionless HCA count
+    return None
+
+
+def decode_values(plain):
+    """Human-readable records of a decrypted/plain telegram.
+
+    Yields dicts: quantity, value, unit, and the raw dif/vif/data hex. Scaled
+    physical values for the common water/heat/HCA quantities and decoded dates
+    (VIF 6C/6D); records we don't model are returned with value=None so the
+    caller can still show the raw bytes.
+    """
+    start = 2 if plain[:2] == b"\x2f\x2f" else 0
+    out = []
+    for dif, vifs, data in iter_records(plain[start:]):
+        vif = vifs[0] if vifs else 0
+        base = vif & 0x7F
+        rec = {
+            "dif": f"{dif:02X}",
+            "vif": "".join(f"{v:02X}" for v in vifs),
+            "raw": data[::-1].hex().upper(),
+            "quantity": None, "value": None, "unit": "",
+        }
+        if base == 0x6C:
+            d = _decode_type_g(data)
+            if d:
+                rec.update(quantity="date", value=d.isoformat(), unit="")
+        elif base == 0x6D:
+            d = _decode_type_f(data)
+            if d:
+                rec.update(quantity="datetime", value=d.isoformat(), unit="")
+        else:
+            spec = _vif_spec(vif)
+            num = _dif_number(dif, data)
+            if spec and num is not None:
+                quantity, unit, exp = spec
+                val = num * (10 ** exp) if exp else num
+                rec.update(quantity=quantity, value=round(val, 6), unit=unit)
+        out.append(rec)
+    return out
 
 
 # ---------------------------------------------------------------- CSV access

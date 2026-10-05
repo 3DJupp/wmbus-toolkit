@@ -40,6 +40,7 @@
       "key": null,
       "telegram": "3B4493444836351218067AC70000200C13911900004C1391170000426CBF2CCC081391170000C2086CBF2C02BB560000326CFFFF046D1E02DE21FED0",
       "expect_prefix": "0C1391190000",
+      "expect_values": [{"quantity": "volume", "value": 1.991, "unit": "m^3"}],
       "source": "wmbusmeters drivers/src/qwaterv2.xmq, test MyQWater (plain CI-7A, mode 0; total_m3 1.991)",
       "license": "MIT (wmbusmeters/wmbusmeters)"
     },
@@ -85,6 +86,7 @@
       "key": "BEDB81B52C29B5C143388CBB0D15A051",
       "telegram": "3944FA122162092002067A3600202567C94D48D00DC47B11213E23383DB51968A705AAFA60C60E263D50CD259D7C9A03FD0C08000002FD0B0011",
       "expect_prefix": "2F2F046D",
+      "expect_values": [{"quantity": "volume", "value": 0.106, "unit": "m^3"}],
       "source": "wmbusmeters simulations/simulation_t1.txt + tests/test_t1_meters.sh",
       "license": "MIT (wmbusmeters/wmbusmeters)"
     },
@@ -94,6 +96,7 @@
       "key": "A004EB23329A477F1DD2D7820B56EB3D",
       "telegram": "76442104710007612507727100076121042507B5006005E2E95A3C2A1279A5415E6732679B43369FD5FDDDD783EEEBB48236D34E7C94AF0A18A5FDA5F7D64111EB42D4D891622139F2952F9D12A20088DFA4CF8123871123EE1F6C1DCEA414879DDB4E05E508F1826D7EFBA6964DF804C9261EA23BBF03",
       "expect_prefix": "2F2F0413",
+      "expect_values": [{"quantity": "volume", "value": 466.472, "unit": "m^3"}],
       "source": "wmbusmeters simulations/simulation_t1.txt + tests/test_t1_meters.sh",
       "license": "MIT (wmbusmeters/wmbusmeters)"
     },
