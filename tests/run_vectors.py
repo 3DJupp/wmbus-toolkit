@@ -27,6 +27,27 @@ sys.path.insert(0, os.path.dirname(HERE))          # repo root, for wmbuslib
 import wmbuslib as wl
 
 
+def _vtag(v):
+    n = len(v.get("expect_values") or [])
+    return f", {n} value(s) ok" if n else ""
+
+
+def _check_values(v, decoded):
+    """Assert every expect_values entry appears among the decoded records."""
+    want = v.get("expect_values") or []
+    for exp in want:
+        hit = any(r["quantity"] == exp["quantity"]
+                  and r["unit"] == exp.get("unit", "")
+                  and r["value"] is not None
+                  and abs(float(r["value"]) - float(exp["value"])) <= 1e-6
+                  for r in decoded)
+        if not hit:
+            got = [(r["quantity"], r["value"], r["unit"]) for r in decoded
+                   if r["value"] is not None][:6]
+            return False, f"expected value {exp} not decoded; got {got}"
+    return True, ""
+
+
 def check(v):
     """-> (ok, detail) for one vector dict.
 
@@ -56,8 +77,11 @@ def check(v):
         got = app.hex().upper()
         if not got.startswith(want):
             return False, f"plain payload {got[:len(want)]} != expected {want}"
+        ok, why = _check_values(v, wl.decode_values(app))
+        if not ok:
+            return False, why
         records = list(wl.iter_records(app))
-        return True, f"class {parsed['encrypted']}, prefix ok, {len(records)} record(s)"
+        return True, f"class {parsed['encrypted']}, prefix ok{_vtag(v)}, {len(records)} record(s)"
 
     # Encrypted vector.
     key = bytes.fromhex(v["key"])
@@ -87,8 +111,13 @@ def check(v):
     if ptw is not None and wl.looks_valid(ptw, v["telegram"]):
         return False, "looks_valid accepted a wrong key (false positive)"
 
+    ok, why = _check_values(v, wl.decode_values(pt))
+    if not ok:
+        return False, why
+
     records = list(wl.iter_records(pt.lstrip(b"\x2f")))
-    return True, f"class {parsed['encrypted']}, prefix+match ok, wrong-key rejected, {len(records)} rec"
+    return True, (f"class {parsed['encrypted']}, prefix+match ok{_vtag(v)}, "
+                  f"wrong-key rejected, {len(records)} rec")
 
 
 def main():
