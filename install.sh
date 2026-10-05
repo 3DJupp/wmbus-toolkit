@@ -27,6 +27,9 @@ if [ "$SRC" != "$DEST" ]; then
   for f in $FILES; do
     cp "$SRC/$f" "$DEST/"
   done
+  # ship the decoder-validation corpus too, so `wmbus-vectors` works on the host
+  mkdir -p "$DEST/tests"
+  cp "$SRC/tests/run_vectors.py" "$SRC/tests/vectors.json" "$DEST/tests/"
 fi
 
 # do not overwrite an existing meters.conf
@@ -40,4 +43,11 @@ for tool in wmbus-collect wmbus-keygen wmbus-keycheck; do
   ln -sf "$DEST/$tool.py" "/usr/local/bin/$tool"
 done
 
-echo "Installed to $DEST, commands: wmbus-collect, wmbus-keygen, wmbus-keycheck"
+# validation runner as its own command
+if [ -f "$DEST/tests/run_vectors.py" ]; then
+  chmod +x "$DEST/tests/run_vectors.py"
+  ln -sf "$DEST/tests/run_vectors.py" "/usr/local/bin/wmbus-vectors"
+fi
+
+echo "Installed to $DEST"
+echo "Commands: wmbus-collect, wmbus-keygen, wmbus-keycheck, wmbus-vectors"
