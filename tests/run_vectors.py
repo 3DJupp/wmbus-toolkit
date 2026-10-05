@@ -22,7 +22,7 @@ import json
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))  # realpath: works via a symlink
 sys.path.insert(0, os.path.dirname(HERE))          # repo root, for wmbuslib
 import wmbuslib as wl
 
