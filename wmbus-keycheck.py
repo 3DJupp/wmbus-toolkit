@@ -64,7 +64,7 @@ def test_key(rows, key, sample):
         except Exception:
             continue
         tries += 1
-        if wl.looks_valid(plain):
+        if wl.looks_valid(plain, rows[idx]["telegram"]):
             hits += 1
             example = example or plain
         # give up when neither the min-hits nor the ratio can still be reached
@@ -197,7 +197,7 @@ def run_decode_all(per, keys, out_path, sample):
                     plain = wl.decrypt_frame(r["telegram"], kb)
                 except Exception:
                     continue
-                if not wl.looks_valid(plain):
+                if not wl.looks_valid(plain, r["telegram"]):
                     continue
                 for dif, vif, val in wl.decode_records(plain):
                     w.writerow({"first_seen": r["first_seen"], "id": mid,

@@ -80,8 +80,15 @@ def check(v):
     if ptw and ptw.hex().upper().startswith(want):
         return False, "wrong key reproduced expect_prefix (IV/offset bug?)"
 
+    # The match detector must accept the correct key and reject the wrong one,
+    # for every class including the Qundis CI-78 wrapper (no 2F2F prefix).
+    if not wl.looks_valid(pt, v["telegram"]):
+        return False, "looks_valid rejected the correct key (match detector gap)"
+    if ptw is not None and wl.looks_valid(ptw, v["telegram"]):
+        return False, "looks_valid accepted a wrong key (false positive)"
+
     records = list(wl.iter_records(pt.lstrip(b"\x2f")))
-    return True, f"class {parsed['encrypted']}, prefix ok, wrong-key rejected, {len(records)} rec"
+    return True, f"class {parsed['encrypted']}, prefix+match ok, wrong-key rejected, {len(records)} rec"
 
 
 def main():

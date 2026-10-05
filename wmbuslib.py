@@ -310,7 +310,7 @@ def decrypt_frame(frame, key):
     for plain in decrypt_candidates(frame, key):
         if first is None:
             first = plain
-        if looks_valid(plain):
+        if looks_valid(plain, frame):
             return plain
     return first
 
@@ -359,19 +359,45 @@ def iter_records(p):
         i += ln
 
 
-def looks_valid(plain):
-    """Mode-5 marker 2F2F plus at least one clean record."""
-    if not plain or plain[:2] != b"\x2f\x2f":
+def _frame_ci(frame):
+    """CI byte of a raw frame, or None."""
+    try:
+        b = bytes.fromhex(clean_hex(frame))
+        return b[10] if len(b) > 10 else None
+    except (ValueError, TypeError):
+        return None
+
+
+def looks_valid(plain, frame=None):
+    """Whether a decryption carries the OMS filler verification for its class.
+
+    Standard Mode 5 (CI 72/7A) starts with the `2F2F` AES-verify word. The
+    Qundis CI-78 wrapper has no such prefix; its inner block is `0x2F`-padded
+    to the AES boundary, so a correct key ends it on `0x2F`. In both cases at
+    least one DIF/VIF record must parse, so a wrong key's random bytes do not
+    pass. The wrapper rule is gated on an actual CI-78 `frame`, so standard
+    frames (and the synthetic CI-7A self-test) keep the strict 2F2F check.
+    """
+    if not plain:
         return False
-    return any(True for _ in iter_records(plain[2:]))
+    if plain[:2] == b"\x2f\x2f":
+        return any(True for _ in iter_records(plain[2:]))
+    if frame is not None and _frame_ci(frame) == 0x78 and plain[-1] == 0x2F:
+        return any(True for _ in iter_records(plain))
+    return False
 
 
 def decode_records(plain):
-    """Records as (dif_hex, vif_hex, value_hex) - value in display order."""
+    """Records as (dif_hex, vif_hex, value_hex) - value in display order.
+
+    Skips the leading 2F2F AES-verify word for standard Mode 5; the Qundis
+    wrapper has no such prefix, so its records are walked from the start.
+    """
+    start = 2 if plain[:2] == b"\x2f\x2f" else 0
     return [(f"{dif:02X}",
              "".join(f"{v:02X}" for v in vifs),
              data[::-1].hex().upper())
-            for dif, vifs, data in iter_records(plain[2:])]
+            for dif, vifs, data in iter_records(plain[start:])]
 
 
 # ---------------------------------------------------------------- CSV access
